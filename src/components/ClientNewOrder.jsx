@@ -1,94 +1,96 @@
 
-import { useState } from 'react';
-import { db } from '../lib/firebase';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { maskCPF, maskPhone, maskCEP, randomCode, randomPin } from '../lib/utils';
-import { sendOrderEmail } from '../lib/email';
+import { addDoc, collection } from "firebase/firestore";
+import { db } from "../firebase";
+import emailjs from "@emailjs/browser";
+import { useState } from "react";
 
-export default function ClientNewOrder({onCreated}){
-  const [form,setForm] = useState({
-    nome:'', nascimento:'', cpf:'', telefone:'', email:'', cep:'', endereco:'',
-    smiles:false, shellbox:false
-  });
-  const [loading,setLoading] = useState(false);
-  const [error,setError] = useState('');
-  const [created,setCreated] = useState(null);
+export default function ClientNewOrder() {
+  const [pedidoCriado, setPedidoCriado] = useState(null);
 
-  const valid = form.nome && form.cpf.length===14 && form.telefone.length>=14 && form.email.includes('@') && form.cep.length>=8;
-
-  function set(k,v){ 
-    setForm(prev=>({...prev, [k]:v})); 
-  }
-
-  async function submit(e){
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if(!valid) return;
-    setLoading(true); setError('');
-    const code = randomCode();
-    const pin = randomPin();
+
     try {
-      await setDoc(doc(db,'orders',code), {
-        code, pin,
-        nome: form.nome,
-        nascimento: form.nascimento || null,
-        cpf: form.cpf,
-        telefone: form.telefone,
-        email: form.email,
-        cep: form.cep,
-        endereco: form.endereco,
-        smiles: !!form.smiles,
-        shellbox: !!form.shellbox,
-        status: 'Em análise',
-        observacao: '',
-        custo: 0,
-        lucro: 0,
-        entregue: false,
-        createdAt: serverTimestamp()
-      });
-      try {
-        await sendOrderEmail({
-          to_name: form.nome,
-          to_email: form.email,
-          codigo_pedido: code,
-          senha_pedido: pin
-        });
-      } catch(err){ /* tolerante ao erro de e-mail */ }
-      setCreated({code,pin});
-      onCreated && onCreated({code,pin,email:form.email});
-    } catch(err){
-      console.error(err);
-      setError('Erro ao salvar seu pedido. Tente novamente.');
-    } finally {
-      setLoading(false);
+      // Gera número do pedido e senha aleatória
+      const numeroPedido = Math.floor(100000 + Math.random() * 900000).toString();
+      const senhaPedido = Math.floor(100000 + Math.random() * 900000).toString();
+
+      // Coleta os dados do formulário
+      const formData = {
+        nome: e.target.nome.value,
+        cpf: e.target.cpf.value,
+        telefone: e.target.telefone.value,
+        email: e.target.email.value,
+        endereco: e.target.endereco.value,
+        smiles: e.target.smiles.checked,
+        shellbox: e.target.shellbox.checked,
+        numeroPedido,
+        senhaPedido,
+        status: "Pendente",
+        createdAt: new Date(),
+      };
+
+      // Salva no Firestore
+      await addDoc(collection(db, "orders"), formData);
+
+      // Exibe na tela
+      setPedidoCriado({ numeroPedido, senhaPedido });
+
+      // Envia e-mail com EmailJS
+      await emailjs.send(
+        import.meta.env.VITE_EMAILJS_SERVICE_ID,
+        import.meta.env.VITE_EMAILJS_TEMPLATE_ID,
+        {
+          nome: formData.nome,
+          email: formData.email,
+          numeroPedido,
+          senhaPedido,
+        },
+        import.meta.env.VITE_EMAILJS_PUBLIC_KEY
+      );
+
+    } catch (error) {
+      console.error("Erro ao salvar pedido:", error);
+      alert("Erro ao salvar pedido. Tente novamente!");
     }
-  }
+  };
 
   return (
-    <div className="card">
-      <h2 className="text-xl font-semibold mb-4">Novo Pedido</h2>
-      <form className="grid md:grid-cols-2 gap-4" onSubmit={submit}>
-        <div><label className="label">Nome</label><input className="input" value={form.nome} onChange={e=>set('nome', e.target.value)} required/></div>
-        <div><label className="label">Data de nascimento</label><input type="date" className="input" value={form.nascimento} onChange={e=>set('nascimento', e.target.value)} /></div>
-        <div><label className="label">CPF</label><input className="input" value={form.cpf} onChange={e=>set('cpf', maskCPF(e.target.value))} required/></div>
-        <div><label className="label">Telefone</label><input className="input" value={form.telefone} onChange={e=>set('telefone', maskPhone(e.target.value))} required/></div>
-        <div><label className="label">Email</label><input type="email" className="input" value={form.email} onChange={e=>set('email', e.target.value)} required/></div>
-        <div><label className="label">CEP</label><input className="input" value={form.cep} onChange={e=>set('cep', maskCEP(e.target.value))} /></div>
-        <div className="md:col-span-2"><label className="label">Endereço</label><input className="input" value={form.endereco} onChange={e=>set('endereco', e.target.value)} /></div>
-        <div className="flex items-center gap-3"><input type="checkbox" checked={form.smiles} onChange={e=>set('smiles', e.target.checked)}/><span>Possui conta no Smiles?</span></div>
-        <div className="flex items-center gap-3"><input type="checkbox" checked={form.shellbox} onChange={e=>set('shellbox', e.target.checked)}/><span>Tem conta no Shell Box?</span></div>
-        <div className="md:col-span-2 flex items-center gap-3">
-          <button disabled={!valid || loading} className="btn btn-primary">{loading ? 'Enviando...' : 'Enviar pedido'}</button>
-          {error && <span className="text-red-600">{error}</span>}
-        </div>
-      </form>
+    <div className="bg-white p-6 rounded-xl shadow-lg">
+      {!pedidoCriado ? (
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <input name="nome" placeholder="Nome" className="input" required />
+          <input name="cpf" placeholder="CPF" className="input" required />
+          <input name="telefone" placeholder="Telefone" className="input" required />
+          <input name="email" placeholder="E-mail" className="input" required />
+          <input name="endereco" placeholder="Endereço" className="input" required />
 
-      {created && (
-        <div className="mt-6 p-4 rounded-xl bg-green-50 border border-green-200">
-          <p className="font-semibold text-green-700">Pedido criado!</p>
-          <p className="text-sm text-green-700/90">Código: <b>{created.code}</b> • Senha: <b>{created.pin}</b></p>
-          <p className="text-xs text-green-700/80">Esses dados também foram enviados para o e-mail informado.</p>
+          <div className="flex gap-4 items-center">
+            <label>
+              <input type="checkbox" name="smiles" /> Possui Smiles?
+            </label>
+            <label>
+              <input type="checkbox" name="shellbox" /> Tem Shellbox?
+            </label>
+          </div>
+
+          <button
+            type="submit"
+            className="bg-green-600 text-white py-2 px-6 rounded-lg hover:bg-green-700 transition"
+          >
+            Fazer Pedido
+          </button>
+        </form>
+      ) : (
+        <div className="text-center p-4 bg-green-50 border rounded-xl">
+          <h2 className="text-xl font-bold text-green-600">Pedido Criado com Sucesso!</h2>
+          <p className="mt-2 text-gray-700">Número do Pedido: <b>{pedidoCriado.numeroPedido}</b></p>
+          <p className="mt-1 text-gray-700">Senha: <b>{pedidoCriado.senhaPedido}</b></p>
+          <p className="mt-3 text-sm text-gray-500">
+            Essas informações também foram enviadas para o seu e-mail.
+          </p>
         </div>
       )}
     </div>
-  )
+  );
 }
